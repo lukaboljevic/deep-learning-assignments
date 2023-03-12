@@ -72,9 +72,6 @@ class Network(object):
                      of As thus contains the activations for all n_L neurons on layer L, for each
                      of the m elements.
         """
-        # TODO however, the samples coming from self.eval_network are of shape (3072, 1), whereas
-        # if they're coming from self.train, they're of shape (3072,) so I will see what
-        # suits me more.
 
         Zs = []
         As = [input]
@@ -176,7 +173,7 @@ class Network(object):
 
             lmbd        - L2 regularization parameter
 
-            n           - size of the TODO, used when calculating the weight decays
+            n           - size of the training set, used when calculating the weight decays
         """
 
         weight_decays = [0] * len(self.weights)
@@ -184,7 +181,7 @@ class Network(object):
             if not n:
                 raise ValueError("Size of training data (n) not given for L2 regularization when updating weights.")
             for i in range(len(self.weights)):
-                weight_decays[i] = (eta * lmbd) / n * self.weights[i]
+                weight_decays[i] = ((eta * lmbd) / n) * self.weights[i]
 
         if self.optimizer == "mbgd":
             for i in range(len(self.weights)):
@@ -278,7 +275,7 @@ class Network(object):
                 grad_weights, grad_biases = \
                     self.backward_pass(output, mini_batch[1], Zs, As)
 
-                self.update_network(grad_weights, grad_biases, eta_current, iteration_index, lmbd=lmbd, n=mini_batch_size)
+                self.update_network(grad_weights, grad_biases, eta_current, iteration_index, lmbd=lmbd, n=n)
 
                 if lr_schedule == "no":
                     eta_current = eta
@@ -287,7 +284,7 @@ class Network(object):
 
                 iteration_index += 1
 
-                loss = cross_entropy(mini_batch[1], output, lmbd=lmbd, n=mini_batch_size, weights=self.weights)
+                loss = cross_entropy(mini_batch[1], output, lmbd=lmbd, n=n, weights=self.weights)
                 loss_avg += loss
 
             epoch_loss = loss_avg / len(mini_batches)
@@ -296,7 +293,7 @@ class Network(object):
             print(f"Loss: {epoch_loss}")
 
             if epoch == 0 or (epoch + 1) % 5 == 0:
-                ca = self.eval_network(val_data, val_class, lmbd=lmbd, n=mini_batch_size)
+                ca = self.eval_network(val_data, val_class, lmbd=lmbd, n=n)
                 validation_CAs.append((epoch, ca))
 
         return epoch_losses, validation_CAs
@@ -315,7 +312,7 @@ class Network(object):
 
             lmbd       - L2 regularization parameter
 
-            n          - size of the TODO, used for regularization
+            n          - size of the training/test set, used for regularization
         """
         
         num_samples = data.shape[1]
@@ -358,35 +355,17 @@ if __name__ == "__main__":
     # Hyperparameters
     beta1           = 0.9  # beta1 for Adam optimizer
     beta2           = 0.999  # beta2 for Adam optimizer
-    optimizer       = "adam"  # "mbgd" or "adam"
+    optimizer       = "mbgd"  # "mbgd" or "adam"
     hidden_layers   = [500, 300, 100]  # structure of hidden layers
-    num_epochs      = 30
+    num_epochs      = 50
     mini_batch_size = 32
-    eta             = 0.001  # learning rate; when optimizer == "adam", set to 0.001 by default
+    eta             = 0.2  # learning rate; when optimizer == "adam", set to 0.001 by default
     # lr_schedule     = EXP_LR
     lr_schedule     = "no"
     k               = 0.001
-    lmbd            = 0.1  # regularization parameter or 0.0, if we don't want regularization
-
-
-    # Train
-    net = Network([train_data.shape[0],  # input layer
-                   *hidden_layers,
-                   train_class.shape[0]],  # output layer
-                   optimizer=optimizer)
-    epoch_losses, val_CAs = net.train(train_data, train_class, val_data, val_class,
-                                      num_epochs, mini_batch_size,
-                                      eta, lr_schedule=lr_schedule,
-                                      k=k, lmbd=lmbd)
+    lmbd            = 0.01  # regularization parameter or 0.0, if we don't want regularization
+    # λ smaller => we prefer to minimize the original cost function, λ bigger => we prefer to minimize the weights
     
-
-    # Evaluate and print network settings
-    print()
-    print()
-    print("=" * 50)
-    print("=" * 50)
-    net.eval_network(test_data, test_class)
-    print()
     network_settings = f"\tOptimizer: \t\t{optimizer.upper()}\n" + \
                        f"\tHidden layers: \t\t{hidden_layers}\n" + \
                        f"\tNumber of epochs: \t{num_epochs}\n" + \
@@ -399,6 +378,28 @@ if __name__ == "__main__":
         network_settings += f"\tLambda (for L2): \t{lmbd}\n"
     if optimizer == "adam":
         network_settings += f"\tBetas (Adam): \t\tbeta1={beta1}, beta2={beta2}\n"
+
+
+    # Train
+    net = Network([train_data.shape[0],  # input layer
+                   *hidden_layers,
+                   train_class.shape[0]],  # output layer
+                   optimizer=optimizer)
+    print(f"Network settings:\n{network_settings}")
+
+    epoch_losses, val_CAs = net.train(train_data, train_class, val_data, val_class,
+                                      num_epochs, mini_batch_size,
+                                      eta, lr_schedule=lr_schedule,
+                                      k=k, lmbd=lmbd)
+    
+
+    # Evaluate
+    print()
+    print()
+    print("=" * 50)
+    print("=" * 50)
+    net.eval_network(test_data, test_class, lmbd=lmbd, n=test_data.shape[1])  # n=size of test set
+    print()
     print(f"Network settings:\n{network_settings}")
 
 
