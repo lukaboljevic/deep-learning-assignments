@@ -245,17 +245,22 @@ class Network(object):
             lmbd            - L2 regularization parameter
 
         Returns:
-            epoch_losses   - a list containing the (average) loss for each epoch
+            training_losses   - a list containing the (average) training loss for each epoch
 
-            validation_CAs - a list containing the classification accuracy for each time the network
-                             was tested on the validation set
+            validation_losses - a list of tuples (epoch, validation_loss), containing validation losses 
+                                whenever the network was tested against the validation set
+
+            validation_cas    - a list of tuples (epoch, CA), containing classification accuracies whenever
+                                the network was tested against the validation set
         """
 
         iteration_index = 0
         eta_current = eta
         n = training_data.shape[1]
-        epoch_losses = []
-        validation_CAs = []
+        training_losses = []
+        validation_cas = []
+        validation_losses = []
+        valid_loss_decreasing = True
 
         for epoch in range(epochs):
             print()
@@ -288,15 +293,21 @@ class Network(object):
                 loss_avg += loss
 
             epoch_loss = loss_avg / len(mini_batches)
-            epoch_losses.append(epoch_loss)
+            training_losses.append(epoch_loss)
             print(f"Epoch {epoch + 1} complete")
             print(f"Loss: {epoch_loss}")
 
             if epoch == 0 or (epoch + 1) % 5 == 0:
-                ca = self.eval_network(val_data, val_class, lmbd=lmbd, n=n)
-                validation_CAs.append((epoch, ca))
+                _, prev_validation_loss = validation_losses[-1] if len(validation_losses) else (-1, float("inf"))
+                valid_loss, valid_ca = self.eval_network(val_data, val_class, lmbd=lmbd, n=n)
+                if valid_loss_decreasing and valid_loss >= prev_validation_loss:
+                    # network started overfitting!
+                    valid_loss_decreasing = False
+                print(f"Previous validation loss: {prev_validation_loss}, decreasing = {valid_loss_decreasing}")
+                validation_losses.append((epoch, valid_loss))
+                validation_cas.append((epoch, valid_ca))
 
-        return epoch_losses, validation_CAs
+        return training_losses, validation_losses, validation_cas
 
 
     def eval_network(self, data, data_class, lmbd=0.0, n=None):
@@ -330,9 +341,11 @@ class Network(object):
             loss = cross_entropy(example_class, output, lmbd=lmbd, n=n, weights=self.weights)
             loss_avg += loss
 
-        print(f"Validation Loss: {loss_avg / num_samples}")
-        print(f"Classification accuracy: {tp / num_samples}")
-        return tp / num_samples
+        validation_loss = loss_avg / num_samples
+        validation_ca = tp / num_samples
+        print(f"Classification accuracy: {validation_ca}")
+        print(f"Current validation loss: {validation_loss}")
+        return validation_loss, validation_ca
 
 
 if __name__ == "__main__":
@@ -356,16 +369,16 @@ if __name__ == "__main__":
     beta1           = 0.9  # beta1 for Adam optimizer
     beta2           = 0.999  # beta2 for Adam optimizer
     optimizer       = "mbgd"  # "mbgd" or "adam"
-    hidden_layers   = [500, 300, 100]  # structure of hidden layers
-    num_epochs      = 50
-    mini_batch_size = 32
-    eta             = 0.2  # learning rate; when optimizer == "adam", set to 0.001 by default
+    hidden_layers   = [500, 500]  # structure of hidden layers
+    num_epochs      = 50  # number of epochs
+    mini_batch_size = 128  # size of mini_batch
+    eta             = 0.3  # learning rate; when optimizer == "adam", set to 0.001 by default
     # lr_schedule     = EXP_LR
     lr_schedule     = "no"
-    k               = 0.001
-    lmbd            = 0.01  # regularization parameter or 0.0, if we don't want regularization
+    k               = 0.001  # decay rate when using exponential LR decay
+    lmbd            = 0.1  # regularization parameter or 0.0, if we don't want regularization
     # λ smaller => we prefer to minimize the original cost function, λ bigger => we prefer to minimize the weights
-    
+
     network_settings = f"\tOptimizer: \t\t{optimizer.upper()}\n" + \
                        f"\tHidden layers: \t\t{hidden_layers}\n" + \
                        f"\tNumber of epochs: \t{num_epochs}\n" + \
@@ -387,10 +400,11 @@ if __name__ == "__main__":
                    optimizer=optimizer)
     print(f"Network settings:\n{network_settings}")
 
-    epoch_losses, val_CAs = net.train(train_data, train_class, val_data, val_class,
-                                      num_epochs, mini_batch_size,
-                                      eta, lr_schedule=lr_schedule,
-                                      k=k, lmbd=lmbd)
+    train_losses, valid_losses, valid_cas = \
+        net.train(train_data, train_class, val_data, val_class,
+                  num_epochs, mini_batch_size,
+                  eta, lr_schedule=lr_schedule,
+                  k=k, lmbd=lmbd)
     
 
     # Evaluate
@@ -403,21 +417,24 @@ if __name__ == "__main__":
     print(f"Network settings:\n{network_settings}")
 
 
-    # Plot the average loss of each epoch, and classification accuracies on the validation set
-    val_epochs, ca_values = list(zip(*val_CAs))
-    val_epochs, ca_values = list(val_epochs), list(ca_values)
+    # Plot training losses, and classification accuracies and losses on the validation set
+    valid_epochs, ca_values = list(zip(*valid_cas))
+    valid_epochs, ca_values = list(valid_epochs), list(ca_values)
+    _, loss_values = list(zip(*valid_losses))
+    loss_values = list(loss_values)
     plt.style.use("ggplot")
 
     fig1, ax1 = plt.subplots()
     fig1.set_size_inches(10, 7)
-    ax1.plot(range(len(epoch_losses)), epoch_losses)
-    ax1.set_xticks(range(0, len(epoch_losses)+1, 5))
-    fig1.suptitle("Epoch losses")
+    ax1.plot(range(len(train_losses)), train_losses)
+    ax1.set_xticks(range(0, len(train_losses)+1, 5))
+    fig1.suptitle("Training losses")
 
     fig2, ax2 = plt.subplots()
     fig2.set_size_inches(10, 7)
-    ax2.plot(val_epochs, ca_values)
-    ax2.set_xticks(range(0, len(epoch_losses)+1, 5))
-    fig2.suptitle("CA on validation set")
+    ax2.plot(valid_epochs, ca_values, color="red", label="Classification accuracies")
+    ax2.plot(valid_epochs, loss_values, color="blue", label="Losses")
+    ax2.set_xticks(range(0, len(train_losses)+1, 5))
+    fig2.suptitle("CAs and losses on validation set")
 
     plt.show()
