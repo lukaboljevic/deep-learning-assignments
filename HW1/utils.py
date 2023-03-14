@@ -27,7 +27,7 @@ def cross_entropy(y_true, y_pred, epsilon=1e-12, lmbd=0.0, n=None, weights=None)
 
         lmbd    - L2 regularization parameter
 
-        n       - size of the training/test set, used when calculating the regularization term
+        n       - size of the training set, used when calculating the regularization term
 
         weights - weights of the neural network
     """

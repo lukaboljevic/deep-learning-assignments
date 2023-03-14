@@ -260,7 +260,6 @@ class Network(object):
         training_losses = []
         validation_cas = []
         validation_losses = []
-        valid_loss_decreasing = True
 
         for epoch in range(epochs):
             print()
@@ -299,18 +298,15 @@ class Network(object):
 
             if epoch == 0 or (epoch + 1) % 5 == 0:
                 _, prev_validation_loss = validation_losses[-1] if len(validation_losses) else (-1, float("inf"))
-                valid_loss, valid_ca = self.eval_network(val_data, val_class, lmbd=lmbd, n=n)
-                if valid_loss_decreasing and valid_loss >= prev_validation_loss:
-                    # network started overfitting!
-                    valid_loss_decreasing = False
-                print(f"Previous validation loss: {prev_validation_loss}, decreasing = {valid_loss_decreasing}")
+                print(f"Previous validation loss: {prev_validation_loss}")
+                valid_loss, valid_ca = self.eval_network(val_data, val_class)
                 validation_losses.append((epoch, valid_loss))
                 validation_cas.append((epoch, valid_ca))
 
         return training_losses, validation_losses, validation_cas
 
 
-    def eval_network(self, data, data_class, lmbd=0.0, n=None):
+    def eval_network(self, data, data_class, test=False):
         """
         Evaluate the (so far) trained network on the provided data and classes/labels.
 
@@ -320,14 +316,10 @@ class Network(object):
                          either from the validation set, or test set.
 
             data_class - numpy array of dimensions [c x m], where c is the number of classes
-
-            lmbd       - L2 regularization parameter
-
-            n          - size of the training/test set, used for regularization
         """
         
         num_samples = data.shape[1]
-        loss_avg = 0.0
+        total_loss = 0.0
         tp = 0.0
 
         for i in range(data.shape[1]):
@@ -338,14 +330,17 @@ class Network(object):
             output_num = np.argmax(output, axis=0)[0]
             tp += int(example_class_num == output_num)
 
-            loss = cross_entropy(example_class, output, lmbd=lmbd, n=n, weights=self.weights)
-            loss_avg += loss
+            loss = cross_entropy(example_class, output)
+            total_loss += loss
 
-        validation_loss = loss_avg / num_samples
-        validation_ca = tp / num_samples
-        print(f"Classification accuracy: {validation_ca}")
-        print(f"Current validation loss: {validation_loss}")
-        return validation_loss, validation_ca
+        loss_avg = total_loss / num_samples
+        CA = tp / num_samples
+        if test:
+            print(f"Current validation loss: {loss_avg}")
+        else:
+            print(f"Test loss: {loss_avg}")
+        print(f"Classification accuracy: {CA}")
+        return loss_avg, CA
 
 
 if __name__ == "__main__":
@@ -412,7 +407,7 @@ if __name__ == "__main__":
     print()
     print("=" * 50)
     print("=" * 50)
-    net.eval_network(test_data, test_class, lmbd=lmbd, n=test_data.shape[1])  # n=size of test set
+    net.eval_network(test_data, test_class, test=True)
     print()
     print(f"Network settings:\n{network_settings}")
 
